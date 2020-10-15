@@ -1,0 +1,134 @@
+---
+title: "Practical Machine Learning Project"
+author: "Vedant Walia"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data Source
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+## Loading the Dataset
+
+My goal in this project is to predict the manner in which they did the exercise via the *classe* variable within the data set.
+
+```{r message=FALSE}
+library(randomForest)
+library(rpart)
+library(ggplot2)
+library(caret)
+library(gbm)
+library(plyr)
+
+download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+             destfile = "./pml-training.csv", method = "curl")
+
+download.file(url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+             destfile = "./pml-testing.csv", method = "curl")
+
+training <- read.csv("./pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+
+testing <- read.csv("./pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+
+```
+
+## Cleaning the Data
+
+Now let us clean the data by removing the irrelevant parts like the columns with no data and also the ones which won't be helping me with the prediction.
+```{r}
+features <- names(testing[,colSums(is.na(testing)) == 0])[8:59]
+training <- training[,c(features,"classe")]
+testing <- testing[,c(features,"problem_id")]
+```
+
+## Partitioning the Data
+
+we will split our data into a training data set (60% of the total cases) and a testing data set (40% of the total cases). This will allow us to estimate the out of sample error of our predictor.
+
+```{r}
+set.seed(2121212)
+
+inTrain <- createDataPartition(training$classe, p=0.6, list=FALSE)
+training_part <- training[inTrain,]
+testing_part <- training[-inTrain,]
+```
+
+## Building the Decision Tree
+
+```{r  message=FALSE, warning=FALSE}
+set.seed(2121212)
+library(rattle)
+training_tree <- rpart(classe ~ ., data = training_part, 
+                       method="class", 
+                       control = rpart.control(method = "cv", number = 10))
+fancyRpartPlot(training_tree)
+```
+
+## Predicting with the Decision Tree
+
+```{r}
+set.seed(2121212)
+prediction <- predict(training_tree, testing_part, type = "class")
+classe <- as.factor(testing_part$classe)
+confusionMatrix(prediction, classe)
+
+```
+
+From the above table we can see that the accuracy of the Decision Tree Model is around 75%.
+
+## Building Random Forest Model
+
+Now let's create a model with random forest to see if the accuracy improves.
+
+```{r}
+set.seed(2121212)
+
+rf <- randomForest(as.factor(classe) ~ ., data = training_part, 
+                   method = "rf", 
+                   importance = T, 
+                   trControl = trainControl(method = "cv", 
+                                            classProbs=TRUE, 
+                                            savePredictions=TRUE,
+                                            allowParallel=TRUE,
+                                            number = 10))
+
+plot(rf)
+
+```
+
+## Predicting with Random Forest
+
+One of the nice features of the random forest algorithm is that when decision trees are created, the algorithm withholds a fraction of the samples for testing while the model is being created. This allows random forests to make a reasonably unbiased measure of out-of-sample error without doing traditional cross-validation.
+
+Let's try and predict the outcomes now and see the accuracy of the same.
+
+```{r}
+prediction <- predict(rf, testing_part, type = "class")
+classe <- as.factor(testing_part$classe)
+confusionMatrix(prediction, classe)
+```
+
+From the above table we can see that the accuracy of the Random Forest Model is around 99%.
+Hence, we it would be better to use it for predicting the values for the testing data (_pml-testing.csv_).
+
+```{r}
+predict_RF <- predict(rf, testing)
+predict_RF
+```
